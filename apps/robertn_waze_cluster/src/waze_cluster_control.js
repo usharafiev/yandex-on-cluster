@@ -684,6 +684,33 @@ class WazeClusterControl extends EventEmitter {
         }
     }
 
+    /* ---- immediate map ---- */
+    /* Whether this carplay build has the sites for the immediate-map option. */
+    immediateAvailable() {
+        const ps = this.patchStatus;
+        return !!(ps && ps.immediate_available === 1);
+    }
+
+    /* The saved immediate-map choice (the checkbox state), or null while patchd
+     * has not said or the build lacks the option. */
+    immediateOn() {
+        const ps = this.patchStatus;
+        return this.connectedPatch() && ps && ps.immediate_available === 1 ? ps.immediate === 1 : null;
+    }
+
+    /* Flips the immediate-map option. With the map enabled patchd re-applies
+     * carplay with the new choice (effective at the next head-unit start); with
+     * it off patchd just saves the choice for the next Enable map. */
+    toggleImmediate() {
+        const ps = this.patchStatus;
+        if (this.immediateOn() === null || this.busy()) {
+            return;
+        }
+        const msg = { cmd: 'immediate', on: ps.immediate === 1 ? 0 : 1 };
+        if (ps.state === 'patched' && ps.panel) { msg.panel = ps.panel; msg.mode = ps.mode || 'avb'; }
+        this.patch.send(msg);
+    }
+
     /* ---- Android Auto ---- */
     aa() {
         const ps = this.patchStatus;
