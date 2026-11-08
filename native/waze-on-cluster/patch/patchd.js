@@ -230,6 +230,10 @@ var LOCAL_CONF = process.env.WOC_LOCAL_CONF || '/var/opt/waze-on-cluster/waze-on
  * start with any of MAP_KEYS in. */
 var MAP_STATE = path.join(STATE_DIR, 'map.state.conf');
 var MAP_KEYS = ['cluster', 'hud', 'hud_width_pct', 'hud_offset_x', 'hud_offset_y'];
+/* The "immediate map" option (carplay's configured + throws edit) is a
+ * patchd-only setting, kept out of MAP_STATE so the render never reads it. */
+var IMMEDIATE_STATE = path.join(STATE_DIR, 'immediate.conf');
+function immediateOn() { try { return readConf(IMMEDIATE_STATE).immediate === '1'; } catch (e) { return false; } }
 
 /* A key = value file's settings; none when it cannot be read. */
 function readConf(file) {
@@ -692,6 +696,8 @@ function readState(cb) {
         var resMatch = /res:\s+PATCHED \(IC_HIGH advertises (\d+x\d+)/.exec(text);
         var safeMatch = /res:\s+PATCHED \(IC_HIGH advertises [^,\n]*, safe (\d+x\d+) at (\d+),(\d+)\)/.exec(text);
         var resOriginal = /res:\s+ORIGINAL/.test(text);
+        var immMatch = /immediate map:\s+(.*)/.exec(text);
+        var immediateAvail = !!immMatch && !/unavailable/.test(immMatch[1]);
         var known = /known:\s+NO/.test(text) ? false : true;
         var unknownWhy = /known:\s+NO — (.*)/.exec(text);
         var pristine = /known:\s+yes, pristine/.test(text);
@@ -753,7 +759,7 @@ function readState(cb) {
         cachedState = { state: state, panel: variant ? variant[1].toLowerCase() : null, mode: mode, res: res, safe: safe, reason: reason, carplay: carplay,
                         pending: pending ? pending.action || 'apply' : null, pendingBy: pending ? pending.by : null,
                         conflict: conflict, binary: binary, known: known, backup: hasBackup, restorable: restorable, proven: proven, recovered: recovered(TARGET),
-                        ours: !!(variant || selfstart || resMatch || sinkRedirected), unreadable: !!(err && !text),
+                        ours: !!(variant || selfstart || resMatch || sinkRedirected), unreadable: !!(err && !text), immediateAvail: immediateAvail,
                         complete: !err && /^end:\s+complete$/m.test(text) };
         cb(cachedState);
     });
@@ -887,6 +893,10 @@ function status(extra, aaExtra) {
             if (!cpBusy && st.pending) msg.pending = st.pending;
             if (!cpBusy && st.conflict) msg.conflict = st.conflict;
             if (!cpBusy && st.recovered) msg.recovered = st.recovered;
+            /* The immediate-map option: the saved choice (the app's checkbox)
+             * and whether this carplay build has the sites for it. */
+            msg.immediate = immediateOn() ? 1 : 0;
+            msg.immediate_available = st.immediateAvail ? 1 : 0;
             if (extra) Object.keys(extra).forEach(function (k) { msg[k] = extra[k]; });
             msg.aa = aaMsg(aa);
             if (aaExtra) Object.keys(aaExtra).forEach(function (k) { msg.aa[k] = aaExtra[k]; });
@@ -1475,7 +1485,10 @@ function patchWith(t, args, action, blocked, done, run) {
  * install-time activation never does. */
 function apply(panel, mode, noRestart, unproven, done) {
     if (panel !== 'high' && panel !== 'mid') { done(new Error('panel must be high or mid')); return; }
-    var args = ['apply', '--panel', panel, '--target', TARGET, '--yes'].concat(unproven ? ['--unproven'] : []);
+    /* Every apply carries the current immediate-map choice, so Enable map and
+     * the install-time activation both keep it in sync with the saved setting. */
+    var args = ['apply', '--panel', panel, '--target', TARGET, '--yes'].concat(unproven ? ['--unproven'] : [])
+        .concat(immediateOn() ? ['--immediate'] : ['--no-immediate']);
     if (mode === 'avb') {
         log('apply IC_' + panel.toUpperCase() + ', stock AVB sink (the render joins the media bus)');
     } else if (mode === 'udp') {
@@ -1732,11 +1745,22 @@ function handle(line, sock) {
         return;
     }
 
-    var hu = (msg.cmd === 'apply' || msg.cmd === 'aa-apply') && headUnit.refused();
+    var hu = (msg.cmd === 'apply' || msg.cmd === 'aa-apply' || msg.cmd === 'immediate') && headUnit.refused();
     if (hu) { log(msg.cmd + ' refused: ' + hu); refuse(hu); return; }
-    if (/^(aa-)?(apply|revert)$/.test(msg.cmd) && headUnit.variant() === 'HIGHF') highfMark(/^aa-/.test(msg.cmd) ? AA : CP, 'user');
+    if (/^((aa-)?(apply|revert)|immediate)$/.test(msg.cmd) && headUnit.variant() === 'HIGHF') highfMark(/^aa-/.test(msg.cmd) ? AA : CP, 'user');
 
-    if (msg.cmd === 'apply' || msg.cmd === 'revert') {
+    if (msg.cmd === 'immediate') {
+        /* Save the immediate-map choice. Re-apply carplay only when the app
+         * passes the panel the map is enabled on, so toggling the checkbox
+         * never enables the map for someone who turned it off: with no panel
+         * the choice is saved and takes effect at the next Enable map. */
+        if (msg.on !== 0 && msg.on !== 1) { refuse('immediate must be 0 or 1'); return; }
+        rewriteConf(IMMEDIATE_STATE, { immediate: String(msg.on) }, []);
+        if (msg.panel === 'high' || msg.panel === 'mid') {
+            var imode = (msg.mode === 'avb' || msg.mode === 'udp') ? msg.mode : 'fifo';
+            operate('carplay', 'applying', function (cb) { apply(msg.panel, imode, false, true, cb); });
+        } else { status(); }
+    } else if (msg.cmd === 'apply' || msg.cmd === 'revert') {
         var panel = msg.panel;
         var mode = (msg.mode === 'avb' || msg.mode === 'udp') ? msg.mode : 'fifo';   /* capture mode; default fifo */
         operate('carplay', msg.cmd === 'apply' ? 'applying' : 'reverting',
