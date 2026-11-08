@@ -66,6 +66,7 @@ var locator = require('./carplay_locate.js');
 var headUnit = require('./head_unit.js');
 var record = require('./patch_record.js');
 var fileMode = require('./file_mode.js');
+var immediate = require('./immediate_locate.js');
 
 /* Builds proven as shipped, by GNU build-id. A first edit of one needs the
  * whole file to be the shipped one, and anything else counts as modified. A
@@ -168,8 +169,14 @@ function geomText(g) { return g.w + 'x' + g.h + ' at ' + g.mmw + 'x' + g.mmh + '
 function classify(buf) {
     var loc = locator.locate(buf);
     if (!loc.elf) return { ok: false, reason: loc.reason, loc: loc, size: buf.length };
+    /* The optional "immediate map" sites (configured + throws), located on top
+     * of the base patch. loc.immediate.ok is false on a build where they are
+     * not found; the option is then unavailable but the rest still works. */
+    loc.immediate = immediate.locate(buf);
     return { ok: true, loc: loc, size: buf.length, variant: variantState(buf, loc.variant), sink: sinkState(buf, loc.sink),
-             selfstart: selfstartState(buf, loc.selfstart), res: resState(buf, loc.res) };
+             selfstart: selfstartState(buf, loc.selfstart), res: resState(buf, loc.res),
+             configured: loc.immediate.configured || { ok: false, state: 'unknown' },
+             throws: loc.immediate.throws || { ok: false, state: 'unknown' } };
 }
 
 /* Why the patcher does not recognise the build: [] when every edit is found
@@ -204,8 +211,15 @@ function label(c) {
  * restores only these, so changes another tool made elsewhere stay. */
 function regions(loc) {
     var r = loc.res;
-    return [[loc.variant.slot, 4], [loc.sink.offset, loc.sink.len], [loc.selfstart.offset, 5],
+    var out = [[loc.variant.slot, 4], [loc.sink.offset, loc.sink.len], [loc.selfstart.offset, 5],
         [r.mm, 8], [r.px, 8], [r.safe1, 8], [r.safe2, 8]];
+    /* The immediate-map sites are backed up and reverted with the rest when the
+     * build has them, so removing the tool restores them too. */
+    if (loc.immediate && loc.immediate.ok) {
+        out.push([loc.immediate.configured.off, loc.immediate.configured.len]);
+        loc.immediate.throws.sites.forEach(function (s) { out.push([s.at, 5]); });
+    }
+    return out;
 }
 
 /* Two classified images are the same build: the same size, build-id and edit
@@ -259,6 +273,11 @@ function cmdStatus(target) {
         : notPristine(c, buf) ? 'yes, modified build' : 'yes, pristine ' + label(c));
     line('proven', PROVEN[c.loc.buildId] ? 'yes' : 'no');
     EDITS.forEach(function (e) { line(e, describe(e, c[e])); });
+    var im = c.loc.immediate;
+    line('immediate map', !im || !im.ok ? 'unavailable on this build'
+        : im.configured.state === 'patched' && im.throws.state === 'patched' ? 'ON (map starts at the CarPlay session)'
+        : im.configured.state === 'stock' && im.throws.state === 'stock' ? 'off'
+        : 'partial (configured ' + im.configured.state + ', throws ' + im.throws.state + ')');
     line('backup', hasBak ? bak : 'none');
 }
 
@@ -401,7 +420,7 @@ function restorePlan(target, cur, c) {
     return { b: b, bc: bc, regionWise: false, out: orig };
 }
 
-function cmdApply(target, panel, capture, sink, res, safe, yes, unproven) {
+function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immediate) {
     var hu = headUnit.refused();
     if (hu) die('refusing: ' + hu);
     if (panel !== 'high' && panel !== 'mid') die('--panel must be high or mid');
@@ -475,6 +494,21 @@ function cmdApply(target, panel, capture, sink, res, safe, yes, unproven) {
         put(resText, o, (wantRes ? resWant : orig).slice(o, o + 8));
     });
 
+    /* The optional immediate-map edit (configured + throws). `immediate` true
+     * writes it, false restores the stock bytes from the pristine backup,
+     * undefined leaves it unchanged. */
+    var im = loc.immediate;
+    if (immediate !== undefined) {
+        if (!im || !im.ok) die('refusing: the immediate-map option is not available on this build (' + ((im && im.reason) || 'sites not found') + ')');
+        if (immediate) {
+            put('immediate map -> on', im.configured.off, Buffer.from(im.configured.patchedBytes, 'hex'));
+            im.throws.sites.forEach(function (s) { put('immediate map -> on', s.at, Buffer.from(s.patched, 'hex')); });
+        } else {
+            put('immediate map -> off', im.configured.off, orig.slice(im.configured.off, im.configured.off + im.configured.len));
+            im.throws.sites.forEach(function (s) { put('immediate map -> off', s.at, orig.slice(s.at, s.at + 5)); });
+        }
+    }
+
     var rec = { patched: true, proven: !!PROVEN[loc.buildId] };
     if (changed.length === 0) {
         repairMode(target, yes);
@@ -488,6 +522,7 @@ function cmdApply(target, panel, capture, sink, res, safe, yes, unproven) {
         : cc.sink.state !== (sinkUrl !== undefined ? 'redirected' : 'original') ? 'sink'
         : cc.selfstart.state !== 'patched' ? 'self-start'
         : cc.res.state !== (wantRes ? 'patched' : 'original') ? 'resolution'
+        : (immediate !== undefined && cc.configured.state !== (immediate ? 'patched' : 'stock')) ? 'immediate map'
         : !onlyRegionsDiffer(buf, out, regions(loc)) ? 'bytes outside the edit regions' : null;
     if (wrong) die('refusing: the edited binary does not verify (' + wrong + '); no change made');
 
@@ -636,7 +671,9 @@ function parseArgs(argv) {
             a.res = (i + 1 < argv.length && argv[i + 1].indexOf('--') !== 0) ? argv[++i] : null;
         } else if (t === '--safe') {
             a.safe = (i + 1 < argv.length && argv[i + 1].indexOf('--') !== 0) ? argv[++i] : null;
-        } else a._.push(t);
+        } else if (t === '--immediate') a.immediate = true;
+        else if (t === '--no-immediate') a.immediate = false;
+        else a._.push(t);
     }
     return a;
 }
@@ -647,7 +684,7 @@ function main() {
     var target = a.target || '/usr/bin/carplay';
     if (cmd === 'status') { cmdStatus(target); line('end', 'complete'); }
     else if (cmd === 'probe') cmdProbe(a.target || a._[1] || '/usr/bin/carplay');
-    else if (cmd === 'apply') cmdApply(target, a.panel, a.capture, a.sink, a.res, a.safe, a.yes, a.unproven);
+    else if (cmd === 'apply') cmdApply(target, a.panel, a.capture, a.sink, a.res, a.safe, a.yes, a.unproven, a.immediate);
     else if (cmd === 'revert') cmdRevert(target, a.yes, a.force, a.dropBackup);
     else if (cmd === 'verify') cmdVerify(target);
     else { process.stderr.write('usage: carplay_patch.js status|probe|apply|revert|verify [--target <file>] [--panel high|mid] [--capture <fifo> | --sink <url>] [--res WxH|stock] [--safe WxH+X+Y|full] [--unproven] [--yes] [--force] [--drop-backup]\n'); process.exit(2); }
