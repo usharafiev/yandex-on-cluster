@@ -551,7 +551,7 @@ test('an older full-frame safe area prompts CarPlay\'s Patch button, which write
     /* A daemon that omits safe (before the safe area) is taken as current. */
     patch._broadcast({ ev: 'status', state: 'patched', panel: 'high', mode: 'avb', res: '1088x480' });
     await until('older daemon', () => c.statusText() === 'Status: Patched' && c.mapText() === 'Cluster map: Waiting for the phone' && c.patchStatus.safe === undefined);
-    assert.strictEqual(SAFE, '504x368+286+72');
+    assert.strictEqual(SAFE, '504x368+433+72');
     c.close();
 });
 

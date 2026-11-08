@@ -360,7 +360,7 @@ class FakePatch extends LineServer {
                 /* The geometry the patcher writes: the high panel's size and
                  * safe area; the mid panel keeps the stock geometry. */
                 this.res = msg.panel === 'high' ? '1088x480' : null;
-                this.safe = msg.panel === 'high' ? '504x368+286+72' : null;
+                this.safe = msg.panel === 'high' ? '504x368+433+72' : null;
                 this.reason = 'restarted';
                 this.log('apply done');
                 this._broadcast(this._status());

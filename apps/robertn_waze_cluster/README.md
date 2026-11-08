@@ -221,7 +221,7 @@ when it closes them.
   `error` `no-space`, `too-large` or `failed`).
 
 A patch with another sink, panel, size (not `1088x480`) or safe area (not
-`504x368+286+72`) shows `Status: Update needed`.
+`504x368+433+72`) shows `Status: Update needed`.
 
 ## Build and test
 

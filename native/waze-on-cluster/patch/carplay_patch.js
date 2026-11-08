@@ -98,10 +98,12 @@ var PROVEN = {
  * pixel. Every geometry this tool writes has this physical size, which tells
  * it from a build's stock geometry. */
 var RES_DEFAULT = { w: 1088, h: 480, mmw: 138, mmh: 61 };
-/* The default safe area in the 1088x480 frame: x from BMW's own IC_MID safe
- * area (which lies inside the map area), y from below the native model badge
- * to inside the gauge mask's lower edge. Other --res sizes scale it. */
-var SAFE_DEFAULT = { x: 286, y: 72, w: 504, h: 368 };
+/* The default safe area in the 1088x480 frame. yandex-on-cluster tunes x for
+ * Yandex Maps (433), not waze-on-cluster's 286, so Enable map places the
+ * guidance banner where Yandex Maps needs it with no separate safe-area tool.
+ * y is from below the native model badge to inside the gauge mask's lower edge.
+ * Other --res sizes scale it. */
+var SAFE_DEFAULT = { x: 433, y: 72, w: 504, h: 368 };
 var EDITS = ['variant', 'sink', 'selfstart', 'res'];
 
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
@@ -320,7 +322,7 @@ function resFor(panel, res, safe) {
         g.safew = w; g.safeh = h; g.safex = 0; g.safey = 0;
     } else if (safe !== undefined) {
         var sm = /^([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+)$/.exec(safe || '');
-        if (!sm) die('--safe needs WxH+X+Y (e.g. 504x368+286+72) or "full"');
+        if (!sm) die('--safe needs WxH+X+Y (e.g. 504x368+433+72) or "full"');
         g.safew = parseInt(sm[1], 10); g.safeh = parseInt(sm[2], 10);
         g.safex = parseInt(sm[3], 10); g.safey = parseInt(sm[4], 10);
         if (g.safew < 16 || g.safeh < 16 || g.safex + g.safew > w || g.safey + g.safeh > h)

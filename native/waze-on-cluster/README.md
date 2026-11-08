@@ -642,7 +642,7 @@ sites in carplay 22.28.3:
 | variant | jump-table slot for `KI_KOMBI_VARIANT` 7 → IC_HIGH or IC_MID | 4 B at `0x2ba4f0` |
 | sink | second-stream sink URL: stock `avb://`, or `udp://…`, `file://…` | ≤ 59 B at `0x2a20b0` |
 | selfstart | `onSuggestUi`'s `setStreamStatus(AVAILABLE)` call → `requestStream()` | rel32 at `0x18176c` |
-| resolution | IC_HIGH geometry → 1088x480 px at 138x61 mm, safe area 504x368+286+72 | four 8 B immediates at `0x20ca32`–`0x20ca7c` |
+| resolution | IC_HIGH geometry → 1088x480 px at 138x61 mm, safe area 504x368+433+72 | four 8 B immediates at `0x20ca32`–`0x20ca7c` |
 
 `patchd` and the install hook apply `--panel high` with the stock sink.
 `woc-patch.sh` is the shell path, for experiments and for undoing the
