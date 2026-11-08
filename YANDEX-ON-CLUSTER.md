@@ -17,16 +17,25 @@ as a parallel component. Only the repo is named yandex-on-cluster.
       the Yandex offset directly and the app shows *Patched*, not *Update needed*
       — no separate safe-area tool, no boot service. (carplay_patch.js,
       waze_cluster_control.js, + test/fixture/readme literals.)
-- [ ] **Immediate appearance** (from waze-cluster-autostart's `configured`
-      edit): a 5th carplay edit so `projectionBridgeConfigured` also calls
-      `requestStream()` — the cluster map starts at the CarPlay session, without
-      a route. Port `autostart_locate.js`'s locate + `autostart_patch.js`'s apply
-      into `carplay_locate.js` / `carplay_patch.js` as edit `configured`
-      (+ `throws` guard so an early ShowUI cannot throw). JS only.
-- [ ] **kWaiting → re-trigger** (the "waiting" idea, done right, in the render):
-      when `MapFeed` stays `kWaiting` (blank) N ms after the stream should be
-      live, the render re-triggers the projection start. C++ — needs the native
-      render rebuilt (toolchain / emulator per idrive-apps AGENTS.md).
+- [ ] **Immediate appearance** — port ONLY waze-cluster-autostart's `configured`
+      edit (+ `throws` guard): `projectionBridgeConfigured` also calls
+      `requestStream()` once at the CarPlay session, so the map starts without a
+      route. **Do NOT port `unlatch` or `modes`.** Those re-fire `requestStream`
+      mid-session (modes on every mode change incl. speech; unlatch lets
+      onSuggestUi re-fire), and a re-ShowUI **while the map is already showing**
+      is what makes the phone re-lay-out with the offset applied twice (the
+      double shift). `configured` fires once and then the stream status latches
+      STREAMING, so nothing re-fires on a showing map. Port
+      `autostart_locate.js` locate + `autostart_patch.js` apply into
+      `carplay_locate.js` / `carplay_patch.js`. JS only.
+- [ ] **kWaiting → re-trigger** (the retry, done right, in the render): when
+      `MapFeed` stays `kWaiting` (blank) N ms after the stream should be live,
+      the render re-triggers the projection start, and stops once a picture
+      flows. This recovers a missed first keyframe WITHOUT the double shift: a
+      re-trigger while blank has no laid-out scene to double-offset (the phone
+      builds it fresh), and it never fires on a showing map. C++ — needs the
+      native render rebuilt (toolchain / emulator per idrive-apps AGENTS.md).
+      This is why the retry belongs in the fork, not in a carplay-only tool.
 - [ ] **Rebrand** repo + titles to yandex-on-cluster, keep component ids.
 - [ ] **Publish privately** + install/channel steps (same branch-channel scheme
       as the safearea beta).
