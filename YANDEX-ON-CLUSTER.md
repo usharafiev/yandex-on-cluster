@@ -53,11 +53,11 @@ no catalog URL has to be set by hand. The Store installs from the **releases
 channel**: a run of the pipeline builds each component, uploads it as a
 release asset, and publishes a `catalog.json` the Store reads over HTTPS.
 
-**Keep the repo private.** Private is the "me-only" channel — nobody else can
-point a Store at a repo they cannot see. The pipeline publishes a private
-repo the same way (`MGU_PUBLISH_VISIBILITY=any`), and the car downloads the
-assets by their GitHub API URL with the owner's token, so the Store source
-has to be signed in to GitHub.
+**The repo is public.** So it is not "me-only" — anyone can point a Store at
+it. The car downloads the release assets from their public download URL, with
+no GitHub sign-in or token needed. (To make it me-only instead, flip the repo
+to private: the pipeline publishes a private repo the same way, and the car
+then downloads by the GitHub API URL with the owner's token.)
 
 **To publish** (component ids stay the same as upstream, so this lands as an
 *update* of `waze-on-cluster` / the app from this source, not a parallel
