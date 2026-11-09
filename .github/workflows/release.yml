@@ -6,6 +6,9 @@
 # catalog.json the Store reads. Run it by hand (Actions, Release), with the
 # component ids to release or none for every changed one; a dry run shows the
 # versions and builds them without pushing or publishing.
+#
+# yandex-on-cluster fork: run this from main (the job gates on main, as
+# upstream). main is kept fast-forwarded to the yandex default branch.
 name: Release
 
 on:
