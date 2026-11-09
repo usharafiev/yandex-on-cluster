@@ -163,6 +163,32 @@
             }
           ]
         },
+        "40": {
+          "type": "checkBox",
+          "name": "wocImmediate",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Show map immediately",
+                "type": "Text"
+              },
+              "eParam_RowSelected": {
+                "value": false,
+                "type": "Bool"
+              }
+            }
+          ]
+        },
         "39": {
           "type": "button",
           "name": "wocLogs",
