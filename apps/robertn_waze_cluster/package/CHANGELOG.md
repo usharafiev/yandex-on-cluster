@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.6
+
 The app's description now says it is part of yandex-on-cluster, the Yandex
 Maps fork of waze-on-cluster, installed from this fork rather than upstream.
 No behaviour change.
