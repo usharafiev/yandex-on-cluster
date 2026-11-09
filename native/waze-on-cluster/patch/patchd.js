@@ -1486,9 +1486,13 @@ function patchWith(t, args, action, blocked, done, run) {
 function apply(panel, mode, noRestart, unproven, done) {
     if (panel !== 'high' && panel !== 'mid') { done(new Error('panel must be high or mid')); return; }
     /* Every apply carries the current immediate-map choice, so Enable map and
-     * the install-time activation both keep it in sync with the saved setting. */
+     * the install-time activation both keep it in sync with the saved setting.
+     * "Show map immediately" enables both the immediate start and the bounded
+     * re-ShowUI retry (one setting, one menu checkbox): `--retry` implies
+     * `--immediate`, and degrades to immediate-only on a build without the retry
+     * sites, so there is no second toggle. */
     var args = ['apply', '--panel', panel, '--target', TARGET, '--yes'].concat(unproven ? ['--unproven'] : [])
-        .concat(immediateOn() ? ['--immediate'] : ['--no-immediate']);
+        .concat(immediateOn() ? ['--retry'] : ['--no-immediate']);
     if (mode === 'avb') {
         log('apply IC_' + panel.toUpperCase() + ', stock AVB sink (the render joins the media bus)');
     } else if (mode === 'udp') {

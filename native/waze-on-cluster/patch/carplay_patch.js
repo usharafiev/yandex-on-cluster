@@ -514,7 +514,12 @@ function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immedi
     if (immediate !== undefined) {
         if (!im || !im.ok) die('refusing: the immediate-map option is not available on this build (' + ((im && im.reason) || 'sites not found') + ')');
         var wantRetry = immediate && retry === true;
-        if (wantRetry && !(im.retry && im.retry.ok)) die('refusing: --retry is not available on this build (' + ((im.retry && im.retry.reason) || 'sites not found') + ')');
+        /* --retry degrades to immediate-only on a build without the retry sites,
+         * so enabling the map never fails for the sake of the optional retry. */
+        if (wantRetry && !(im.retry && im.retry.ok)) {
+            process.stderr.write('warning: --retry is not available on this build (' + ((im.retry && im.retry.reason) || 'sites not found') + '); applying the immediate map without it\n');
+            wantRetry = false;
+        }
         /* configured handler: the plain patch, the "reset" variant (+retry), or
          * stock — written over the full region so no stale tail bytes remain. */
         var cfgRegionLen = im.configured.patchedBytesRetry ? im.configured.patchedBytesRetry.length / 2 : im.configured.len;
