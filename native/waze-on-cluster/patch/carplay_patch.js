@@ -216,8 +216,17 @@ function regions(loc) {
     /* The immediate-map sites are backed up and reverted with the rest when the
      * build has them, so removing the tool restores them too. */
     if (loc.immediate && loc.immediate.ok) {
-        out.push([loc.immediate.configured.off, loc.immediate.configured.len]);
+        /* back up enough of the configured handler for the retry "reset" variant
+         * (34 B) when that is available, else the plain 30 B. */
+        var cfgLen = loc.immediate.configured.patchedBytesRetry ? loc.immediate.configured.patchedBytesRetry.length / 2 : loc.immediate.configured.len;
+        out.push([loc.immediate.configured.off, cfgLen]);
         loc.immediate.throws.sites.forEach(function (s) { out.push([s.at, 5]); });
+    }
+    /* The optional retry edit (unlatch + modesChanged slot) is backed up and
+     * reverted with the rest when the build has it. */
+    if (loc.immediate && loc.immediate.retry && loc.immediate.retry.ok) {
+        out.push([loc.immediate.modes.off, loc.immediate.modes.len]);
+        out.push([loc.immediate.unlatch.off, 1]);
     }
     return out;
 }
@@ -278,6 +287,10 @@ function cmdStatus(target) {
         : im.configured.state === 'patched' && im.throws.state === 'patched' ? 'ON (map starts at the CarPlay session)'
         : im.configured.state === 'stock' && im.throws.state === 'stock' ? 'off'
         : 'partial (configured ' + im.configured.state + ', throws ' + im.throws.state + ')');
+    line('retry map', !im || !im.retry || !im.retry.ok ? 'unavailable on this build'
+        : im.retryApplied ? 'ON (EXPERIMENTAL: bounded re-ShowUI, N=' + im.retry.n + ')'
+        : im.unlatch.state === 'stock' && im.modes.state === 'stock' ? 'off'
+        : 'partial (modes ' + im.modes.state + ', unlatch ' + im.unlatch.state + ', configured reset ' + (im.configured.retryApplied ? 'on' : 'off') + ')');
     line('backup', hasBak ? bak : 'none');
 }
 
@@ -420,7 +433,7 @@ function restorePlan(target, cur, c) {
     return { b: b, bc: bc, regionWise: false, out: orig };
 }
 
-function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immediate) {
+function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immediate, retry) {
     var hu = headUnit.refused();
     if (hu) die('refusing: ' + hu);
     if (panel !== 'high' && panel !== 'mid') die('--panel must be high or mid');
@@ -500,12 +513,29 @@ function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immedi
     var im = loc.immediate;
     if (immediate !== undefined) {
         if (!im || !im.ok) die('refusing: the immediate-map option is not available on this build (' + ((im && im.reason) || 'sites not found') + ')');
-        if (immediate) {
-            put('immediate map -> on', im.configured.off, Buffer.from(im.configured.patchedBytes, 'hex'));
-            im.throws.sites.forEach(function (s) { put('immediate map -> on', s.at, Buffer.from(s.patched, 'hex')); });
-        } else {
-            put('immediate map -> off', im.configured.off, orig.slice(im.configured.off, im.configured.off + im.configured.len));
-            im.throws.sites.forEach(function (s) { put('immediate map -> off', s.at, orig.slice(s.at, s.at + 5)); });
+        var wantRetry = immediate && retry === true;
+        if (wantRetry && !(im.retry && im.retry.ok)) die('refusing: --retry is not available on this build (' + ((im.retry && im.retry.reason) || 'sites not found') + ')');
+        /* configured handler: the plain patch, the "reset" variant (+retry), or
+         * stock — written over the full region so no stale tail bytes remain. */
+        var cfgRegionLen = im.configured.patchedBytesRetry ? im.configured.patchedBytesRetry.length / 2 : im.configured.len;
+        var cfgBytes, cfgWhat;
+        if (!immediate) { cfgBytes = orig.slice(im.configured.off, im.configured.off + cfgRegionLen); cfgWhat = 'immediate map -> off'; }
+        else if (wantRetry) { cfgBytes = Buffer.from(im.configured.patchedBytesRetry, 'hex'); cfgWhat = 'immediate map -> on (+retry)'; }
+        else { cfgBytes = Buffer.concat([Buffer.from(im.configured.patchedBytes, 'hex'),
+            orig.slice(im.configured.off + im.configured.len, im.configured.off + cfgRegionLen)]); cfgWhat = 'immediate map -> on'; }
+        put(cfgWhat, im.configured.off, cfgBytes);
+        im.throws.sites.forEach(function (s) {
+            put(immediate ? 'immediate map -> on' : 'immediate map -> off', s.at,
+                immediate ? Buffer.from(s.patched, 'hex') : orig.slice(s.at, s.at + 5));
+        });
+        /* the optional retry edit (modesChanged slot + unlatch): on only with
+         * --retry, otherwise the pristine stock bytes, so --no-retry and
+         * immediate-off both remove it. Only on a build that has the sites. */
+        if (im.retry && im.retry.ok) {
+            put(wantRetry ? 'retry -> on' : 'retry -> off', im.modes.off,
+                wantRetry ? Buffer.from(im.modes.patched, 'hex') : orig.slice(im.modes.off, im.modes.off + im.modes.len));
+            put(wantRetry ? 'retry -> on' : 'retry -> off', im.unlatch.off,
+                wantRetry ? Buffer.from(im.unlatch.patched, 'hex') : orig.slice(im.unlatch.off, im.unlatch.off + 1));
         }
     }
 
@@ -523,6 +553,7 @@ function cmdApply(target, panel, capture, sink, res, safe, yes, unproven, immedi
         : cc.selfstart.state !== 'patched' ? 'self-start'
         : cc.res.state !== (wantRes ? 'patched' : 'original') ? 'resolution'
         : (immediate !== undefined && cc.configured.state !== (immediate ? 'patched' : 'stock')) ? 'immediate map'
+        : (immediate !== undefined && im && im.retry && im.retry.ok && cc.loc.immediate.retryApplied !== (immediate && retry === true)) ? 'retry'
         : !onlyRegionsDiffer(buf, out, regions(loc)) ? 'bytes outside the edit regions' : null;
     if (wrong) die('refusing: the edited binary does not verify (' + wrong + '); no change made');
 
@@ -673,6 +704,8 @@ function parseArgs(argv) {
             a.safe = (i + 1 < argv.length && argv[i + 1].indexOf('--') !== 0) ? argv[++i] : null;
         } else if (t === '--immediate') a.immediate = true;
         else if (t === '--no-immediate') a.immediate = false;
+        else if (t === '--retry') a.retry = true;
+        else if (t === '--no-retry') a.retry = false;
         else a._.push(t);
     }
     return a;
@@ -684,7 +717,14 @@ function main() {
     var target = a.target || '/usr/bin/carplay';
     if (cmd === 'status') { cmdStatus(target); line('end', 'complete'); }
     else if (cmd === 'probe') cmdProbe(a.target || a._[1] || '/usr/bin/carplay');
-    else if (cmd === 'apply') cmdApply(target, a.panel, a.capture, a.sink, a.res, a.safe, a.yes, a.unproven, a.immediate);
+    else if (cmd === 'apply') {
+        /* retry (on or off) is a sub-option of the immediate map, so naming it
+         * implies --immediate unless --no-immediate was given (--no-immediate
+         * turns the whole thing, retry included, off). */
+        var imm = a.immediate;
+        if (a.retry !== undefined && imm === undefined) imm = true;
+        cmdApply(target, a.panel, a.capture, a.sink, a.res, a.safe, a.yes, a.unproven, imm, a.retry);
+    }
     else if (cmd === 'revert') cmdRevert(target, a.yes, a.force, a.dropBackup);
     else if (cmd === 'verify') cmdVerify(target);
     else { process.stderr.write('usage: carplay_patch.js status|probe|apply|revert|verify [--target <file>] [--panel high|mid] [--capture <fifo> | --sink <url>] [--res WxH|stock] [--safe WxH+X+Y|full] [--unproven] [--yes] [--force] [--drop-backup]\n'); process.exit(2); }

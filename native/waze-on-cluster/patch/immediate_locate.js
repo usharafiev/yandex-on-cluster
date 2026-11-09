@@ -185,6 +185,15 @@ function locateFuncs(im, str, refs) {
  * This tool rewrites it to call subscribeEvents and then jmp requestStream. */
 var CFG_PROLOGUE = '4883ec18c6475001';   /* sub rsp,0x18 ; mov byte [rdi+0x50],1 */
 var CFG_LEN = 30;                        /* the bytes our rewrite occupies */
+/* The optional "retry" (bounded re-ShowUI) feature (see locateRetry below) adds
+ * a per-session counter. It is stored in a free object byte at [this+0x51],
+ * right after the configured flag at [this+0x50]; the configured handler's
+ * rewrite initialises it (the +4-byte "reset" variant, 34 bytes), and the
+ * modesChanged slot decrements it. EXPERIMENTAL: the 0x51 offset is padding on
+ * this build as far as static analysis shows, but is confirmed only on the car. */
+var CFG_LEN_RETRY = 34;                  /* the configured rewrite with the counter init */
+var RETRY_COUNTER_OFF = 0x51;            /* [this+0x51] holds the retry counter */
+var RETRY_DEFAULT_N = 6;                 /* mode-changes to re-ShowUI before latching off */
 function locateConfigured(im, f) {
     var buf = im.buf;
     /* the function whose body starts with the configured-flag prologue and
@@ -203,14 +212,20 @@ function locateConfigured(im, f) {
     /* We own only the 30 bytes our rewrite occupies at the function start; the
      * stock bytes after our `jmp requestStream` become dead code (the function
      * table and unwind info still span the whole function unchanged). */
-    var c = { ok: true, off: fn.off, len: CFG_LEN, sub: f.sub, rs: f.rs };
+    var c = { ok: true, off: fn.off, len: CFG_LEN, sub: f.sub, rs: f.rs, fnEnd: fn.end };
     c.patchedBytes = configuredPatched(im, c).toString('hex');
+    /* the "reset" variant (immediate + retry): initialises the retry counter at
+     * [this+0x51]; only usable when the function is long enough (it is: 64 B). */
+    c.retryFits = fn.end - fn.off >= CFG_LEN_RETRY;
+    c.patchedBytesRetry = c.retryFits ? configuredResetPatched(im, c, RETRY_DEFAULT_N).toString('hex') : null;
     var cur = buf.toString('hex', c.off, c.off + c.len);
+    var curRetry = buf.toString('hex', c.off, c.off + CFG_LEN_RETRY);
     /* stock when it still tail-jumps to subscribeEvents and never jumps/calls
      * requestStream in the owned window. */
     var stock = scan(buf, fn.off, fn.end, [0xe9]).some(function (p) { return im.rel(p + 1, p + 5) === f.sub; }) &&
         !im.calls(fn.off, fn.off + CFG_LEN).some(function (x) { return x.to === f.rs; });
-    c.state = cur === c.patchedBytes ? 'patched' : stock ? 'stock' : 'unknown';
+    c.retryApplied = c.patchedBytesRetry !== null && curRetry === c.patchedBytesRetry;
+    c.state = c.retryApplied || cur === c.patchedBytes ? 'patched' : stock ? 'stock' : 'unknown';
     if (c.state === 'unknown') { c.ok = false; c.reason = 'configured: handler is neither stock nor this tool\'s patch'; }
     c.stockBytes = c.state === 'stock' ? cur : null;
     return c;
@@ -225,6 +240,91 @@ function configuredPatched(im, c) {
     var callSub = 'e8' + hex32(im.va(c.sub) - im.va(c.off + 17));
     var jmpRs = 'e9' + hex32(im.va(c.rs) - im.va(c.off + 30));
     return Buffer.from(CFG_PROLOGUE + '48893c24' + callSub + '488b3c24' + '4883c418' + jmpRs, 'hex');
+}
+
+/* The "reset" variant: like configuredPatched but also inits the retry counter
+ * `mov byte [rdi+0x51],N` after setting the configured flag. Layout: prologue 8,
+ * mov byte[rdi+0x51],N 4 (off+8), mov [rsp],rdi 4 (off+12), call 5 (off+16,
+ * next off+21), mov rdi,[rsp] 4 (off+21), add rsp,0x18 4 (off+25), jmp 5
+ * (off+29, next off+34). */
+function configuredResetPatched(im, c, n) {
+    var setN = 'c647' + Buffer.from([RETRY_COUNTER_OFF]).toString('hex') + Buffer.from([n & 0xff]).toString('hex');
+    var callSub = 'e8' + hex32(im.va(c.sub) - im.va(c.off + 21));
+    var jmpRs = 'e9' + hex32(im.va(c.rs) - im.va(c.off + 34));
+    return Buffer.from(CFG_PROLOGUE + setN + '48893c24' + callSub + '488b3c24' + '4883c418' + jmpRs, 'hex');
+}
+
+/* ---- Retry edit C: un-latch the stream status (from waze-cluster-autostart) --
+ * requestStream ends with setStreamStatus(STREAMING=2): `mov dword [rsp+8],2`
+ * before the call latches mStreamStatus to STREAMING, so a start the render
+ * missed is never retried (the guard `cmp [this+0x48],2` skips). This flips the
+ * low byte of that immediate 0x02->0x01 (AVAILABLE), so the guard does not latch
+ * and a later trigger re-runs requestStream. Inert outside carplay. One byte. */
+function locateUnlatch(im, f) {
+    var buf = im.buf;
+    var ssCall = im.calls(f.rs, f.rsEnd).filter(function (c) { return c.to === f.ss; });
+    if (ssCall.length !== 1) return { ok: false, reason: 'unlatch: setStreamStatus call ' + (ssCall.length ? 'found ' + ssCall.length + ' times' : 'not found') };
+    var at = ssCall[0].at;
+    var stores = scan(buf, at - 24, at, [0xc7, 0x44, 0x24, 0x08]).filter(function (p) {
+        if (p + 8 > at) return false;
+        var v = buf.readUInt32LE(p + 4);
+        return v === 2 || v === 1;
+    });
+    if (stores.length !== 1) return { ok: false, reason: 'unlatch: STREAMING argument store ' + (stores.length ? 'found ' + stores.length + ' times' : 'not found') };
+    var off = stores[0] + 4, v = buf.readUInt32LE(off);
+    return { ok: true, off: off, len: 1, stock: '02', patched: '01', state: v === 1 ? 'patched' : 'stock' };
+}
+
+/* ---- Retry edit D: the modesChanged slot (from waze-cluster-autostart, with a
+ * bounded counter added) --------------------------------------------------- */
+/* AlternateDisplays' slot for ICarPlayEvents::modesChanged. Stock: the only
+ * function that compares `dword [rsi+0x14]` with 1, compares `byte [rdi+0x50]`
+ * with 0 and calls setStreamStatus. Autostart rewrote it to re-run requestStream
+ * on every mode change (which draws, but never stops -> double shift). This
+ * tool's stub stops after N retries per session, using the counter at
+ * [rdi+0x51] (init by the configured reset variant):
+ *     cmp byte [rdi+0x50],0 ; je ret ; cmp byte [rdi+0x51],0 ; je ret ;
+ *     dec byte [rdi+0x51] ; jmp requestStream ; ret         (21 bytes) */
+var MODES_CMP_MODE = [0x83, 0x7e, 0x14, 0x01];   /* cmp dword [rsi+0x14],1 */
+var MODES_CMP_CFG = [0x80, 0x7f, 0x50, 0x00];    /* cmp byte [rdi+0x50],0 */
+var MODES_LEN = 21;
+function modesPatched(im, off, rs) {
+    /* 80 7f 50 00 (cfg?) ; 74 0e (je ret@0x14) ; 80 7f 51 00 (counter?) ;
+     * 74 08 (je ret@0x14) ; fe 4f 51 (dec counter) ; e9 rel32 (jmp rs, next
+     * 0x14) ; c3 (ret) */
+    var jmpRs = 'e9' + hex32(im.va(rs) - im.va(off + 0x14));
+    return Buffer.from('807f5000' + '740e' + '807f' + Buffer.from([RETRY_COUNTER_OFF]).toString('hex') + '00'
+        + '7408' + 'fe4f' + Buffer.from([RETRY_COUNTER_OFF]).toString('hex') + jmpRs + 'c3', 'hex');
+}
+function locateModes(im, f) {
+    var buf = im.buf, found = [];
+    scan(buf, im.exec.off, im.exec.end, MODES_CMP_MODE).forEach(function (p) {
+        var fn = im.func(p);
+        if (!fn || found.some(function (g) { return g.off === fn.off; })) return;
+        if (!scan(buf, fn.off, fn.end, MODES_CMP_CFG).length) return;
+        if (!im.calls(fn.off, fn.end).some(function (c) { return c.to === f.ss; })) return;
+        found.push(fn);
+    });
+    if (found.length > 1) return { ok: false, reason: 'modes: slot found ' + found.length + ' times' };
+    if (found.length === 1) {
+        var fn = found[0], want = modesPatched(im, fn.off, f.rs).toString('hex');
+        if (fn.end - fn.off < MODES_LEN + 4) return { ok: false, reason: 'modes: slot too short' };
+        var cur = buf.toString('hex', fn.off, fn.off + MODES_LEN);
+        var st = cur === want ? 'patched' : /^4883ec28/.test(cur) ? 'stock' : 'unknown';   /* sub rsp,0x28 */
+        if (st === 'unknown') return { ok: false, reason: 'modes: slot is neither stock nor this tool\'s patch' };
+        return { ok: true, off: fn.off, len: MODES_LEN, patched: want, stockBytes: st === 'stock' ? cur : null, state: st };
+    }
+    /* patched: our stub at a function start (cmp cfg ; je ; cmp counter), the
+     * stock body after it still holds `cmp dword [rsi+0x14],1`. */
+    var pat = [];
+    scan(buf, im.exec.off, im.exec.end, [0x80, 0x7f, 0x50, 0x00, 0x74, 0x0e, 0x80, 0x7f, RETRY_COUNTER_OFF]).forEach(function (p) {
+        var fn = im.func(p);
+        if (!fn || fn.off !== p) return;
+        if (!scan(buf, fn.off, fn.end, MODES_CMP_MODE).length) return;
+        pat.push(fn);
+    });
+    if (pat.length !== 1) return { ok: false, reason: 'modes: slot ' + (pat.length ? 'found ' + pat.length + ' times' : 'not found') };
+    return { ok: true, off: pat[0].off, len: MODES_LEN, patched: modesPatched(im, pat[0].off, f.rs).toString('hex'), stockBytes: null, state: 'patched' };
 }
 
 /* ---- Edit B: the two throwOnCinemoError calls in requestStream ---------- */
@@ -282,6 +382,17 @@ function locate(buf) {
     var fails = ['configured', 'throws'].filter(function (k) { return !out[k].ok; });
     out.ok = fails.length === 0;
     if (!out.ok) out.reason = fails.map(function (k) { return out[k].reason; }).join('; ');
+    /* The optional "retry" feature (unlatch + modes-with-counter + the configured
+     * reset variant). Not part of out.ok: the base immediate map works without it. */
+    out.unlatch = locateUnlatch(im, f);
+    out.modes = locateModes(im, f);
+    out.retry = {
+        ok: out.configured.ok && !!out.configured.retryFits && out.unlatch.ok && out.modes.ok,
+        counterOff: RETRY_COUNTER_OFF, n: RETRY_DEFAULT_N,
+        reason: [out.unlatch.reason, out.modes.reason,
+            out.configured.ok && !out.configured.retryFits ? 'configured handler too short for the counter init' : null].filter(Boolean).join('; ') || null
+    };
+    out.retryApplied = !!(out.configured.retryApplied && out.unlatch.state === 'patched' && out.modes.state === 'patched');
     return out;
 }
 
