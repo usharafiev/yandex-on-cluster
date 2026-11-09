@@ -15,36 +15,48 @@ as a parallel component. Only the repo is named yandex-on-cluster.
 - [x] **Yandex safe area by default.** `carplay_patch.js` `SAFE_DEFAULT` x = 433
       (was 286), and the app's `SAFE` constant matches, so **Enable map** writes
       the Yandex offset directly and the app shows *Patched*, not *Update needed*
-      — no separate safe-area tool, no boot service. (carplay_patch.js,
-      waze_cluster_control.js, + test/fixture/readme literals.)
-- [ ] **Immediate appearance** — port ONLY waze-cluster-autostart's `configured`
-      edit (+ `throws` guard): `projectionBridgeConfigured` also calls
+      — no separate safe-area tool, no boot service.
+- [x] **Immediate appearance** — waze-cluster-autostart's `configured` edit
+      (+ `throws` guard), ported as an **optional** carplay edit in a new
+      `immediate_locate.js` and the `--immediate` / `--no-immediate` flag of
+      `carplay_patch.js`. `projectionBridgeConfigured` also calls
       `requestStream()` once at the CarPlay session, so the map starts without a
-      route. **Do NOT port `unlatch` or `modes`.** Those re-fire `requestStream`
-      mid-session (modes on every mode change incl. speech; unlatch lets
-      onSuggestUi re-fire), and a re-ShowUI **while the map is already showing**
-      is what makes the phone re-lay-out with the offset applied twice (the
-      double shift). `configured` fires once and then the stream status latches
-      STREAMING, so nothing re-fires on a showing map. Port
-      `autostart_locate.js` locate + `autostart_patch.js` apply into
-      `carplay_locate.js` / `carplay_patch.js`. JS only.
-- [ ] **kWaiting → re-trigger** (the retry, done right, in the render): when
-      `MapFeed` stays `kWaiting` (blank) N ms after the stream should be live,
-      the render re-triggers the projection start, and stops once a picture
-      flows. This recovers a missed first keyframe WITHOUT the double shift: a
-      re-trigger while blank has no laid-out scene to double-offset (the phone
-      builds it fresh), and it never fires on a showing map. C++ — needs the
-      native render rebuilt (toolchain / emulator per idrive-apps AGENTS.md).
-      This is why the retry belongs in the fork, not in a carplay-only tool.
-- [ ] **Rebrand** repo + titles to yandex-on-cluster, keep component ids.
-- [ ] **Publish privately** + install/channel steps (same branch-channel scheme
-      as the safearea beta).
+      route; it fires once and the stream status then latches, so nothing
+      re-fires on a showing map. `unlatch` and `modes` are deliberately NOT
+      ported (those cause the double shift). Tested 13/13 on the car's carplay
+      22.28.3 image.
+- [x] **A menu checkbox for it.** patchd keeps the choice (`immediate.conf`,
+      not MAP_STATE), passes `--immediate`/`--no-immediate` on every apply and
+      reports `immediate` / `immediate_available` in status; the app has
+      `immediateOn()/toggleImmediate()` and a `wocImmediate` checkbox
+      ("Show map immediately"). Toggling re-applies only when the map is
+      enabled, so it never enables the map for someone who turned it off.
+      **The RHMI model + app build are validated on the emulator** (not on
+      Windows). Kept in its own commit so it can be reverted without touching
+      the working map.
+- [~] **kWaiting → re-trigger: NOT DONE — not feasible.** The idea (the render,
+      on a blank `MapFeed`/`kWaiting`, re-triggers the projection start) has no
+      path: the "waiting" state lives in the render, but `requestStream` is
+      called only inside carplay, and nothing on the head-unit side (patchd,
+      the app, the render) can reach carplay to trigger it — patchd only
+      *observes* the DLT markers (`CARPLAY_MARKERS`), it cannot send them. So a
+      missed first keyframe (cold-start AVB late-join, rare) still needs a
+      CarPlay reconnect. The immediate start itself (configured) is unaffected.
+- [x] **Drop-in, repo named yandex-on-cluster.** Component ids stay
+      `waze-on-cluster` / `robertn_waze_cluster`.
 
-## Build / test
+## Build / install (the car)
 
-Native render + app build per idrive-apps AGENTS.md (emulator). JS patcher edits
-are tested against the car's real carplay 22.28.3 image (build-id 5de62156…),
-as the add-on tools were.
+The native render is **unchanged from upstream** (no C++ edits), so it builds as
+upstream does. The changes are all JS (the carplay patcher + patchd + the app +
+one RHMI component). Build and publish a release from this fork the way upstream
+does (`release/release.js publish`, idrive-apps AGENTS.md), then install
+`waze-on-cluster` (and the app) from that release on the car. The JS patcher
+edits are tested against the car's real carplay 22.28.3 image (build-id
+`5de62156…`); the RHMI checkbox and the app build want an emulator pass.
+
+If the checkbox misbehaves on the head unit, revert the single
+`immediate map: the menu checkbox (wocImmediate)` commit — the map keeps working.
 
 [cluster-yandex-safearea-fix]: https://github.com/usharafiev/cluster-yandex-safearea-fix
 [waze-cluster-autostart]: https://github.com/usharafiev/waze-cluster-autostart
