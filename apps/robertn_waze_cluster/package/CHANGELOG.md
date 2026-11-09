@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.5
+
 Tuned for Yandex Maps on the cluster. The map's safe area now sits where
 Yandex Maps keeps its guidance banner, so the banner no longer overlaps the
 gauges. A new Show map immediately checkbox, under Show on, starts the
