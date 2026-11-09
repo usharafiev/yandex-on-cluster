@@ -47,6 +47,12 @@ as a parallel component. Only the repo is named yandex-on-cluster.
 
 ## Publish for mgu-store (this fork)
 
+**Published (2026-11-09):** `waze-on-cluster@0.9.6`, `robertn_waze_cluster@0.6.5`
+and `cluster-render@0.4.2` are live in GitHub Releases, with a `catalog`
+release holding `catalog.json`. On the car, in mgu-store, point the
+`waze-on-cluster` (and app) source at `github:usharafiev/yandex-on-cluster`
+(releases channel) and update; the render needs no change.
+
 This repo keeps upstream's release pipeline, and it already resolves itself
 as `github:usharafiev/yandex-on-cluster` (`node release/release.js list`), so
 no catalog URL has to be set by hand. The Store installs from the **releases
@@ -63,11 +69,11 @@ then downloads by the GitHub API URL with the owner's token.)
 *update* of `waze-on-cluster` / the app from this source, not a parallel
 component):
 
-1. GitHub → **Actions → Release → Run workflow**, on the `yandex` branch
-   (the default). Leave *Component ids* empty to release every changed
-   component, or list `cluster-render waze-on-cluster robertn_waze_cluster`
-   on the first run. Tick **Dry run** first to see what it would stamp/build
-   without pushing or publishing.
+1. GitHub → **Actions → Release → Run workflow**, on the **`main`** branch
+   (the job gates on `main`; `main` is kept fast-forwarded to `yandex`).
+   Leave *Component ids* empty to release every changed component. Tick
+   **Dry run** first to see what it would stamp/build without pushing or
+   publishing.
 2. A real run stamps the next versions (the app's CHANGELOG `## Unreleased`
    becomes the release notes), pushes the `release:` commit, builds each
    component twice, uploads the new versions and the catalog, and tags each
