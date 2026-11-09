@@ -1,7 +1,7 @@
 {
   "name": "robertn_waze_cluster",
   "version": "0.6.5",
-  "description": "Puts the CarPlay Waze map on the instrument cluster: enable the patch from the HMI and the map follows CarPlay",
+  "description": "The HMI app of yandex-on-cluster (the Yandex Maps fork of waze-on-cluster): puts the CarPlay cluster map on the instrument cluster, tuned for Yandex Maps. Install from this fork's catalog, not upstream. Enable the patch from the HMI and the map follows CarPlay",
   "private": false,
   "main": "javascript/runner.js",
   "oapAppSettings": {

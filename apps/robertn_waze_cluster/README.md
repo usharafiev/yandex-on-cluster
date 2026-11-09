@@ -1,18 +1,20 @@
 # robertn_waze_cluster
 
 The HMI app for [waze-on-cluster](../../native/waze-on-cluster), which shows
-the CarPlay cluster map (Waze, Apple Maps or Google Maps), or Android Auto's,
-on the instrument cluster of an iDrive 7 (MGU) head unit. Everything is done from the HMI; no
-shell is needed.
+the CarPlay cluster map (Yandex Maps, Waze, Apple Maps or Google Maps), or
+Android Auto's, on the instrument cluster of an iDrive 7 (MGU) head unit.
+Everything is done from the HMI; no shell is needed.
 
-Install it from the catalog of
-[idrive-apps](https://github.com/robertnisipeanu/idrive-apps)
-through the [mgu Store](https://github.com/robertnisipeanu/mgu-store). It requires
-waze-on-cluster 0.9.3, which brings the cluster renderer and writes the
-CarPlay patch, and the Android Auto patch where the car supports it, as it
-installs; one head-unit start activates them. After that
-the map is on the cluster whenever CarPlay streams it, whether or not this
-app is open.
+This is part of **yandex-on-cluster**, the Yandex Maps fork of
+[idrive-apps](https://github.com/robertnisipeanu/idrive-apps)' waze-on-cluster:
+install it from **this repository's** catalog through the
+[mgu Store](https://github.com/robertnisipeanu/mgu-store), not from upstream —
+its `waze-on-cluster` keeps the same component id, so the fork replaces the
+stock waze-on-cluster rather than sitting next to it. It requires
+waze-on-cluster (the fork's build), which brings the cluster renderer and
+writes the CarPlay patch, and the Android Auto patch where the car supports
+it, as it installs; one head-unit start activates them. After that the map is
+on the cluster whenever CarPlay streams it, whether or not this app is open.
 
 Set **Instrument cluster > Central display area** to **Map view**: the Waze
 map replaces the stock map while CarPlay's cluster stream shows a map, and
