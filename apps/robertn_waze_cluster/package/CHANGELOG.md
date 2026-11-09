@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The app's description now says it is part of yandex-on-cluster, the Yandex
+Maps fork of waze-on-cluster, installed from this fork rather than upstream.
+No behaviour change.
+
 ## 0.6.5
 
 Tuned for Yandex Maps on the cluster. The map's safe area now sits where
