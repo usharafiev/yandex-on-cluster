@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Tuned for Yandex Maps on the cluster. The map's safe area now sits where
+Yandex Maps keeps its guidance banner, so the banner no longer overlaps the
+gauges. A new Show map immediately checkbox, under Show on, starts the
+cluster map as soon as CarPlay connects instead of waiting for a route;
+greyed while the map is off, and it never turns the map on by itself.
+
 ## 0.6.4
 
 Map settings per driver profile, after eroobeeroo's #41. Show on, the HUD
