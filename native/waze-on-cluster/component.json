@@ -49,6 +49,11 @@
       "mode": "0644"
     },
     {
+      "path": "immediate_locate.js",
+      "from": "patch/immediate_locate.js",
+      "mode": "0644"
+    },
+    {
       "path": "aapd_patch.js",
       "from": "patch/aapd_patch.js",
       "mode": "0644"
