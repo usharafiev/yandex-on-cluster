@@ -15,6 +15,28 @@ Yandex Maps keeps its guidance banner, so the banner no longer overlaps the
 gauges. A new Show map immediately checkbox, under Show on, starts the
 cluster map as soon as CarPlay connects instead of waiting for a route;
 greyed while the map is off, and it never turns the map on by itself.
+## 0.6.7
+
+Keep HUD map over BMW's pop-ups, a checkbox in HUD. Unticked, the default,
+the HUD map steps aside while BMW's HUD media and list pop-ups show, such
+as the media source list, and comes back after they go; it
+never steps aside for route guidance. Ticked, it stays shown over them.
+Kept for the next start, and per driver profile with Own settings for this
+driver.
+
+## 0.6.6
+
+Show on gets **Off**: the map leaves the cluster
+and the HUD at once and BMW's own content comes back, with no CarPlay or
+Android Auto reconnect and no restart, for a phone that keeps sending its
+map after the route ends. Cluster, HUD or both again shows the map with
+the phone's next frame. Kept for the next start, and per driver profile
+with Own settings for this driver. While Off, the HUD's size and position
+and Hide BMW's turn box are greyed.
+
+## 0.6.5
+
+The Store shows the app's icon while it is not installed.
 
 ## 0.6.4
 

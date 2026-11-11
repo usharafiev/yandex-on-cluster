@@ -106,6 +106,13 @@ int start(const cld::Config &cfg, char **)
     port.set_manager(&service.slots());
     port.set_hmi_client_handle(std::strtoull(cfg.str("dcsm_hmi_client_handle").c_str(), nullptr, 0));
     service.slots().console_text = [console](int64_t now_ms) { return console->counts_text(now_ms); };
+    service.slots().on_renderer_stuck = [&framework, user](int64_t) {
+        log_warn("ramses: no renderer subscription through %d recoveries: reconnecting as participant %u",
+                 SlotManager::kReconnectAfter, user);
+        framework.disconnect();
+        if (framework.connect() != ramses::StatusOK)
+            log_error("ramses: reconnect failed (participant %u)", user);
+    };
     Governor *gov = &service.compositor().governor();
     port.on_link = [gov](bool silent, int64_t now_ms) {
         if (silent)
@@ -123,10 +130,11 @@ int start(const cld::Config &cfg, char **)
         return 1;
     }
     for (const TargetSpec &t : sc.targets)
-        log_info("target %s: slot 0x%llx class %u scene 0x%llx %ux%u, linger %d ms%s%s%s", t.name.c_str(),
+        log_info("target %s: slot 0x%llx class %u scene 0x%llx %ux%u, linger %d ms%s%s%s%s", t.name.c_str(),
                  (unsigned long long)t.slot, t.content_class, (unsigned long long)t.scene_id, t.width, t.height,
                  t.linger_ms, t.take_over_stock ? ", takes over from the stock HMI" : "",
-                 t.follows.empty() ? "" : ", held while shown: ", t.follows.c_str());
+                 t.scene_files ? ", takes scene files" : "", t.follows.empty() ? "" : ", held while shown: ",
+                 t.follows.c_str());
 
     std::vector<pollfd> fds;
     for (;;) {
