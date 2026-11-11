@@ -233,7 +233,10 @@ var MAP_KEYS = ['cluster', 'hud', 'hud_width_pct', 'hud_offset_x', 'hud_offset_y
 /* The "immediate map" option (carplay's configured + throws edit) is a
  * patchd-only setting, kept out of MAP_STATE so the render never reads it. */
 var IMMEDIATE_STATE = path.join(STATE_DIR, 'immediate.conf');
-function immediateOn() { try { return readConf(IMMEDIATE_STATE).immediate === '1'; } catch (e) { return false; } }
+/* TEMPORARY: immediate + retry default ON (on unless immediate.conf says '0'),
+ * so the map starts immediately without the menu checkbox while that checkbox
+ * is being fixed. Revert to `=== '1'` once the checkbox works. */
+function immediateOn() { try { return readConf(IMMEDIATE_STATE).immediate !== '0'; } catch (e) { return true; } }
 
 /* A key = value file's settings; none when it cannot be read. */
 function readConf(file) {
